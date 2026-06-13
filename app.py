@@ -167,10 +167,9 @@ def _create_picture_book_from_request():
     image_size = request.form.get("image_size") or "2k"
     page_count = _parse_page_count(request.form.get("page_count"))
 
-    service = PictureBookService(output_dir=OUTPUT_DIR, upload_dir=UPLOAD_DIR)
-
     if uploaded_file and uploaded_file.filename:
         saved_path = _save_upload(uploaded_file)
+        service = PictureBookService(output_dir=OUTPUT_DIR, upload_dir=UPLOAD_DIR)
         return service.create_from_file(
             saved_path,
             aspect_ratio=aspect_ratio,
@@ -179,6 +178,7 @@ def _create_picture_book_from_request():
         )
 
     if text:
+        service = PictureBookService(output_dir=OUTPUT_DIR, upload_dir=UPLOAD_DIR)
         return service.create_from_text(
             text,
             aspect_ratio=aspect_ratio,
