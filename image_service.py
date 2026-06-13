@@ -59,11 +59,13 @@ class NanoBananaImageService:
         prompt: str,
         aspect_ratio: str = "16:9",
         image_size: str = "2k",
+        reference_image_urls: list[str] | None = None,
     ) -> ImageResult:
         task_id, initial_response = self.start_generation(
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            reference_image_urls=reference_image_urls,
         )
 
         if self._is_succeeded(initial_response) and self._has_image(initial_response):
@@ -77,10 +79,12 @@ class NanoBananaImageService:
         prompt: str,
         aspect_ratio: str = "16:9",
         image_size: str = "2k",
+        reference_image_urls: list[str] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         if not prompt or not prompt.strip():
             raise ImageServiceError("请先输入一段绘本画面描述。")
 
+        references = [url for url in reference_image_urls or [] if url]
         payload = {
             "model": self.model,
             "prompt": prompt.strip(),
@@ -88,6 +92,13 @@ class NanoBananaImageService:
             "imageSize": image_size,
             "webHook": "-1",
         }
+        if references:
+            reference_field = os.getenv(
+                "NANO_BANANA_REFERENCE_IMAGE_FIELD",
+                "imageUrls",
+            )
+            payload[reference_field] = references
+
         response = self._post("/v1/draw/nano-banana", payload)
         task_id = self._extract_task_id(response)
         if not task_id:

@@ -13,7 +13,9 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "storage" / "uploads"
 OUTPUT_DIR = BASE_DIR / "storage" / "outputs"
+REFERENCE_PHOTO_DIR = BASE_DIR / "storage" / "reference_photos"
 ALLOWED_EXTENSIONS = DocumentParser.SUPPORTED_EXTENSIONS
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
@@ -61,7 +63,7 @@ INDEX_HTML = """
   <body>
     <main>
       <h1>AI 儿童绘本生成器</h1>
-      <p class="hint">可以输入文字，也可以上传 PDF、Word 或 TXT。PDF/Word 会通过 MinerU 解析，PDF 中的图片会开启 OCR。</p>
+      <p class="hint">可以输入文字，也可以上传 PDF、Word 或 TXT。PDF/Word 会通过 MinerU 解析，PDF 中的图片会开启 OCR。也可以上传孩子或角色照片，让 AI 融入绘本插图。</p>
       <div class="content-grid">
         <form id="picture-book-form" action="/picture-books" method="post" enctype="multipart/form-data">
           <label>文字描述</label>
@@ -69,6 +71,10 @@ INDEX_HTML = """
 
           <label>上传文档（PDF / Word / TXT，可选）</label>
           <input type="file" name="file" accept=".pdf,.doc,.docx,.txt" />
+
+          <label>参考照片（可选，可上传孩子或角色照片）</label>
+          <input type="file" name="reference_photos" accept=".jpg,.jpeg,.png,.webp" multiple />
+          <p class="hint">参考照片会作为角色参考传给图片生成服务，用于把真实人物融入卡通绘本场景。</p>
 
           <div class="grid">
             <div>
@@ -114,7 +120,7 @@ INDEX_HTML = """
             <span id="progress-percent">0%</span>
           </div>
           <ul id="stage-list" class="stage-list">
-            <li><span class="stage-dot"></span><span>准备素材</span></li>
+            <li><span class="stage-dot"></span><span>准备素材和参考照片</span></li>
             <li><span class="stage-dot"></span><span>解析文档 / OCR</span></li>
             <li><span class="stage-dot"></span><span>梳理提示词与生成大纲</span></li>
             <li><span class="stage-dot"></span><span>生成每页绘本插图</span></li>
@@ -133,7 +139,7 @@ INDEX_HTML = """
       const progressResult = document.getElementById("progress-result");
       const stageItems = Array.from(document.querySelectorAll("#stage-list li"));
       const stages = [
-        { label: "准备素材", percent: 8 },
+        { label: "准备素材和参考照片", percent: 8 },
         { label: "解析文档 / OCR", percent: 24 },
         { label: "梳理提示词与生成大纲", percent: 42 },
         { label: "生成每页绘本插图", percent: 74 },
@@ -316,9 +322,19 @@ def download_picture_book(job_id: str):
     return send_file(pdf_path, as_attachment=True, download_name=f"{job_id}.pdf")
 
 
+@app.get("/reference-photos/<filename>")
+def uploaded_reference_photo(filename: str):
+    safe_name = secure_filename(filename)
+    photo_path = REFERENCE_PHOTO_DIR / safe_name
+    if not photo_path.exists():
+        return jsonify({"error": "参考照片不存在或已被清理。"}), 404
+    return send_file(photo_path)
+
+
 def _create_picture_book_from_request():
     text = (request.form.get("text") or "").strip()
     uploaded_file = request.files.get("file")
+    reference_image_urls = _save_reference_photos(request.files.getlist("reference_photos"))
     aspect_ratio = request.form.get("aspect_ratio") or "16:9"
     image_size = request.form.get("image_size") or "2k"
     page_count = _parse_page_count(request.form.get("page_count"))
@@ -331,6 +347,7 @@ def _create_picture_book_from_request():
             aspect_ratio=aspect_ratio,
             image_size=image_size,
             page_count=page_count,
+            reference_image_urls=reference_image_urls,
         )
 
     if text:
@@ -340,6 +357,7 @@ def _create_picture_book_from_request():
             aspect_ratio=aspect_ratio,
             image_size=image_size,
             page_count=page_count,
+            reference_image_urls=reference_image_urls,
         )
 
     raise PictureBookError("请填写文字描述或上传一个文档。")
@@ -355,6 +373,33 @@ def _save_upload(uploaded_file) -> Path:
     saved_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{extension}"
     uploaded_file.save(saved_path)
     return saved_path
+
+
+def _save_reference_photos(uploaded_files) -> list[str]:
+    urls: list[str] = []
+    REFERENCE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+
+    for uploaded_file in uploaded_files:
+        if not uploaded_file or not uploaded_file.filename:
+            continue
+
+        filename = secure_filename(uploaded_file.filename)
+        extension = Path(filename).suffix.lower()
+        if extension not in ALLOWED_IMAGE_EXTENSIONS:
+            raise PictureBookError("参考照片仅支持 JPG、PNG、WEBP 格式。")
+
+        saved_name = f"{uuid.uuid4().hex}{extension}"
+        saved_path = REFERENCE_PHOTO_DIR / saved_name
+        uploaded_file.save(saved_path)
+        urls.append(
+            url_for(
+                "uploaded_reference_photo",
+                filename=saved_name,
+                _external=True,
+            )
+        )
+
+    return urls
 
 
 def _parse_page_count(raw_page_count: str | None) -> int:

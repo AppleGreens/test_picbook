@@ -26,7 +26,7 @@
 - OCR：PDF / Word 通过 MinerU 解析，PDF 图片内容会开启 OCR
 - 提示词规范化：后台会把用户初始提示词整理成儿童绘本设计 Brief
 - 大纲生成：把原文拆成儿童绘本页，并生成每页旁白、结构化页面计划和图片提示词
-- 图片生成：调用 Nano Banana Pro 生成绘本风格插图
+- 图片生成：调用 Nano Banana Pro 生成绘本风格插图，可上传参考照片融入角色
 - PDF 导出：将封面、插图和旁白合成为一本 PDF 绘本
 
 ## 准备环境
@@ -59,10 +59,13 @@ NANO_BANANA_BASE_URL=https://api.grsai.com
 NANO_BANANA_MODEL=nano-banana-pro
 NANO_BANANA_ASPECT_RATIO=16:9
 NANO_BANANA_IMAGE_SIZE=2k
+NANO_BANANA_REFERENCE_IMAGE_FIELD=imageUrls
 
 MINERU_BASE_URL=https://mineru.net/api/v4
 MINERU_MODEL_VERSION=vlm
 MINERU_LANGUAGE=ch
+MINERU_UPLOAD_TIMEOUT_SECONDS=180
+MINERU_UPLOAD_RETRIES=3
 ```
 
 ## 启动应用
@@ -86,6 +89,8 @@ http://localhost:5000
 1. 输入文字描述；或
 2. 上传 PDF、Word、TXT 文档
 
+也可以上传孩子或角色照片作为参考图，让 AI 把真实人物融入卡通绘本场景。
+
 然后选择页数、图片比例、图片大小，点击「生成儿童绘本 PDF」。
 
 ### API 方式
@@ -103,12 +108,23 @@ curl -X POST http://localhost:5000/api/picture-books \
 ```bash
 curl -X POST http://localhost:5000/api/picture-books \
   -F "file=@story.pdf" \
+  -F "reference_photos=@child.jpg" \
   -F "page_count=6" \
   -F "aspect_ratio=16:9" \
   -F "image_size=2k"
 ```
 
 接口返回 `download_url` 后，可访问该地址下载 PDF。
+
+### 参考照片说明
+
+参考照片支持 JPG、PNG、WEBP。后端会把照片保存到 `storage/reference_photos`，并通过 `/reference-photos/<filename>` 生成可访问 URL，再传给 Nano Banana Pro。
+
+默认参考图字段为 `imageUrls`。如果 API 服务商要求其他字段名，可以通过 `.env` 调整：
+
+```bash
+NANO_BANANA_REFERENCE_IMAGE_FIELD=imageUrls
+```
 
 ## 后台提示词规范化
 

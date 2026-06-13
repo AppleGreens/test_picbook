@@ -4,6 +4,7 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
+from socket import timeout as SocketTimeout
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -28,6 +29,8 @@ class MinerUOcrService:
         max_wait_seconds: int | None = None,
         poll_interval_seconds: float | None = None,
         request_timeout_seconds: int | None = None,
+        upload_timeout_seconds: int | None = None,
+        upload_retries: int | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("MINERU_API_KEY") or os.getenv(
             "MINERU_TOKEN"
@@ -48,6 +51,12 @@ class MinerUOcrService:
         )
         self.request_timeout_seconds = request_timeout_seconds or int(
             os.getenv("MINERU_REQUEST_TIMEOUT_SECONDS", "30")
+        )
+        self.upload_timeout_seconds = upload_timeout_seconds or int(
+            os.getenv("MINERU_UPLOAD_TIMEOUT_SECONDS", "180")
+        )
+        self.upload_retries = upload_retries or int(
+            os.getenv("MINERU_UPLOAD_RETRIES", "3")
         )
 
     def parse_file(self, file_path: Path, is_ocr: bool = True) -> str:
@@ -231,24 +240,38 @@ class MinerUOcrService:
         return data
 
     def _upload_file(self, file_path: Path, upload_url: str) -> None:
-        request = Request(
-            upload_url,
-            data=file_path.read_bytes(),
-            method="PUT",
+        file_bytes = file_path.read_bytes()
+        last_error: BaseException | None = None
+
+        for attempt in range(1, self.upload_retries + 1):
+            request = Request(
+                upload_url,
+                data=file_bytes,
+                method="PUT",
+            )
+            try:
+                with urlopen(request, timeout=self.upload_timeout_seconds) as response:
+                    if response.status not in (200, 201, 204):
+                        raise MinerUServiceError(
+                            f"上传文件到 MinerU 失败，HTTP 状态码：{response.status}"
+                        )
+                    return
+            except HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                raise MinerUServiceError(
+                    f"上传文件到 MinerU 失败（HTTP {exc.code}）：{body}"
+                ) from exc
+            except (TimeoutError, SocketTimeout, URLError, OSError) as exc:
+                last_error = exc
+                if attempt < self.upload_retries:
+                    time.sleep(min(2**attempt, 8))
+                    continue
+                break
+
+        raise MinerUServiceError(
+            f"上传文件到 MinerU 超时或网络失败，已重试 {self.upload_retries} 次："
+            f"{last_error}"
         )
-        try:
-            with urlopen(request, timeout=self.request_timeout_seconds) as response:
-                if response.status not in (200, 201, 204):
-                    raise MinerUServiceError(
-                        f"上传文件到 MinerU 失败，HTTP 状态码：{response.status}"
-                    )
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise MinerUServiceError(
-                f"上传文件到 MinerU 失败（HTTP {exc.code}）：{body}"
-            ) from exc
-        except URLError as exc:
-            raise MinerUServiceError(f"上传文件到 MinerU 失败：{exc.reason}") from exc
 
     def _headers(self) -> dict[str, str]:
         return {

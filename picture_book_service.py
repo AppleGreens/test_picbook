@@ -44,6 +44,7 @@ class PictureBookService:
         aspect_ratio: str = "16:9",
         image_size: str = "2k",
         page_count: int = 6,
+        reference_image_urls: list[str] | None = None,
     ) -> PictureBookResult:
         document = DocumentContent(text=text, source_name="text")
         return self._create(
@@ -51,6 +52,7 @@ class PictureBookService:
             aspect_ratio=aspect_ratio,
             image_size=image_size,
             page_count=page_count,
+            reference_image_urls=reference_image_urls,
         )
 
     def create_from_file(
@@ -59,6 +61,7 @@ class PictureBookService:
         aspect_ratio: str = "16:9",
         image_size: str = "2k",
         page_count: int = 6,
+        reference_image_urls: list[str] | None = None,
     ) -> PictureBookResult:
         try:
             document = self.document_parser.parse(file_path)
@@ -70,6 +73,7 @@ class PictureBookService:
             aspect_ratio=aspect_ratio,
             image_size=image_size,
             page_count=page_count,
+            reference_image_urls=reference_image_urls,
         )
 
     def _create(
@@ -78,6 +82,7 @@ class PictureBookService:
         aspect_ratio: str,
         image_size: str,
         page_count: int,
+        reference_image_urls: list[str] | None,
     ) -> PictureBookResult:
         job_id = uuid.uuid4().hex
 
@@ -91,6 +96,7 @@ class PictureBookService:
                 pages=pages,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                reference_image_urls=reference_image_urls,
             )
             pdf_path = self.pdf_exporter.export(
                 title=title,
@@ -115,13 +121,24 @@ class PictureBookService:
         pages: list[PictureBookPage],
         aspect_ratio: str,
         image_size: str,
+        reference_image_urls: list[str] | None,
     ) -> list[PictureBookPage]:
         generated_pages: list[PictureBookPage] = []
+        references = [url for url in reference_image_urls or [] if url]
         for page in pages:
+            prompt = page.image_prompt
+            if references:
+                prompt = (
+                    f"{prompt}\n\nUse the uploaded reference photo(s) as character "
+                    "identity references. Integrate the real person from the photo "
+                    "into the cartoon picture-book scene while keeping the scene "
+                    "warm, child-friendly, and story-driven."
+                )
             image_result = self.image_service.generate_image(
-                prompt=page.image_prompt,
+                prompt=prompt,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                reference_image_urls=references,
             )
             image_path = self.images_dir / f"{job_id}_page_{page.page_number}.png"
             image_path.write_bytes(image_result.image_bytes)
