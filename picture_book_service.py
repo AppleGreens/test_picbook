@@ -131,6 +131,10 @@ class PictureBookService:
                     title=page.title,
                     narration=page.narration,
                     image_prompt=page.image_prompt,
+                    narrative_goal=page.narrative_goal,
+                    key_content=page.key_content,
+                    visual=page.visual,
+                    layout=page.layout,
                     image_path=image_path,
                 )
             )

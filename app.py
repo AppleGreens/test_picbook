@@ -105,7 +105,14 @@ RESULT_HTML = """
       <h2>绘本大纲</h2>
       <ol>
         {% for page in result.pages %}
-          <li><strong>{{ page.title }}</strong>：{{ page.narration }}</li>
+          <li>
+            <strong>{{ page.title }}</strong><br />
+            // NARRATIVE GOAL {{ page.narrative_goal }}<br />
+            // KEY CONTENT {{ page.key_content }}<br />
+            // VISUAL {{ page.visual }}<br />
+            // LAYOUT {{ page.layout }}<br />
+            {{ page.narration }}
+          </li>
         {% endfor %}
       </ol>
       <p><a href="/">继续生成新的绘本</a></p>
@@ -224,6 +231,10 @@ def _serialize_result(result):
                 "title": page.title,
                 "narration": page.narration,
                 "image_prompt": page.image_prompt,
+                "narrative_goal": page.narrative_goal,
+                "key_content": page.key_content,
+                "visual": page.visual,
+                "layout": page.layout,
             }
             for page in result.pages
         ],

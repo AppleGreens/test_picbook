@@ -103,16 +103,23 @@ class PictureBookPdfExporter:
         pdf_canvas.setFont("STSong-Light", 15)
         pdf_canvas.drawString(margin, text_top - 5 * mm, page.title)
 
-        style = ParagraphStyle(
+        narration_style = ParagraphStyle(
             "PictureBookNarration",
             fontName="STSong-Light",
-            fontSize=15,
-            leading=22,
+            fontSize=13,
+            leading=18,
             textColor=colors.HexColor("#3D2B1F"),
         )
-        paragraph = Paragraph(page.narration, style)
-        paragraph.wrapOn(pdf_canvas, page_width - margin * 2, 40 * mm)
-        paragraph.drawOn(pdf_canvas, margin, margin)
+        page_plan = (
+            f"<b>// NARRATIVE GOAL</b> {page.narrative_goal}<br/>"
+            f"<b>// KEY CONTENT</b> {page.key_content}<br/>"
+            f"<b>// VISUAL</b> {page.visual}<br/>"
+            f"<b>// LAYOUT</b> {page.layout}<br/><br/>"
+            f"{page.narration}"
+        )
+        paragraph = Paragraph(page_plan, narration_style)
+        paragraph.wrapOn(pdf_canvas, page_width - margin * 2, 48 * mm)
+        paragraph.drawOn(pdf_canvas, margin, margin - 2 * mm)
 
         pdf_canvas.showPage()
 

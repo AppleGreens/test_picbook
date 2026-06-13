@@ -16,6 +16,10 @@ class PictureBookPage:
     title: str
     narration: str
     image_prompt: str
+    narrative_goal: str
+    key_content: str
+    visual: str
+    layout: str
     image_path: Path | None = None
 
 
