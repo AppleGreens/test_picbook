@@ -39,7 +39,7 @@ NANO_BANANA_API_KEY=your_api_key_here
 默认接口配置如下，可按需调整：
 
 ```bash
-NANO_BANANA_BASE_URL=https://grsai.com
+NANO_BANANA_BASE_URL=https://api.grsai.com
 NANO_BANANA_MODEL=nano-banana-pro
 NANO_BANANA_ASPECT_RATIO=16:9
 NANO_BANANA_IMAGE_SIZE=2k

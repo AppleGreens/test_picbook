@@ -41,7 +41,7 @@ class NanoBananaImageService:
             raise ImageServiceError("请先在 .env 中配置 NANO_BANANA_API_KEY。")
 
         self.base_url = (
-            base_url or os.getenv("NANO_BANANA_BASE_URL", "https://grsai.com")
+            base_url or os.getenv("NANO_BANANA_BASE_URL", "https://api.grsai.com")
         ).rstrip("/")
         self.model = model or os.getenv("NANO_BANANA_MODEL", "nano-banana-pro")
         self.max_wait_seconds = max_wait_seconds or int(
@@ -131,6 +131,12 @@ class NanoBananaImageService:
                 raw_body = response.read().decode("utf-8")
         except HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 403 and "cloudflare" in error_body.lower():
+                raise ImageServiceError(
+                    "图片服务请求被 Cloudflare 拦截。请将 "
+                    "NANO_BANANA_BASE_URL 配置为 API 域名，例如 "
+                    "https://api.grsai.com。"
+                ) from exc
             raise ImageServiceError(
                 f"图片服务请求失败（HTTP {exc.code}）：{error_body}"
             ) from exc
