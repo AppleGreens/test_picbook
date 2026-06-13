@@ -55,6 +55,32 @@ class MinerUOcrService:
         full_zip_url = self._wait_for_batch_result(batch_id)
         return self._download_markdown_from_zip(full_zip_url)
 
+    def parse_url(self, document_url: str, is_ocr: bool = True) -> str:
+        task_id = self._create_extract_task(document_url=document_url, is_ocr=is_ocr)
+        full_zip_url = self._wait_for_task_result(task_id)
+        return self._download_markdown_from_zip(full_zip_url)
+
+    def _create_extract_task(self, document_url: str, is_ocr: bool) -> str:
+        if not document_url or not document_url.strip():
+            raise MinerUServiceError("MinerU 远程文档 URL 不能为空。")
+
+        payload = {
+            "url": document_url.strip(),
+            "model_version": self.model_version,
+            "language": self.language,
+            "is_ocr": is_ocr,
+            "enable_formula": True,
+            "enable_table": True,
+        }
+        response = self._post_json("/extract/task", payload)
+        data = self._payload_data(response)
+
+        task_id = data.get("task_id")
+        if not task_id:
+            raise MinerUServiceError(f"MinerU 未返回解析任务 ID：{response}")
+
+        return str(task_id)
+
     def _create_upload_batch(self, file_path: Path, is_ocr: bool) -> str:
         payload = {
             "files": [
@@ -106,6 +132,28 @@ class MinerUOcrService:
 
             if time.monotonic() >= deadline:
                 raise MinerUServiceError(f"MinerU 文档解析超时。batch_id：{batch_id}")
+
+            time.sleep(self.poll_interval_seconds)
+
+    def _wait_for_task_result(self, task_id: str) -> str:
+        deadline = time.monotonic() + self.max_wait_seconds
+
+        while True:
+            response = self._get_json(f"/extract/task/{task_id}")
+            data = self._payload_data(response)
+            state = str(data.get("state") or "").lower()
+
+            if state == "done":
+                full_zip_url = data.get("full_zip_url")
+                if not full_zip_url:
+                    raise MinerUServiceError(f"MinerU 解析完成但未返回结果包：{response}")
+                return str(full_zip_url)
+
+            if state == "failed":
+                raise MinerUServiceError(f"MinerU 解析失败：{data.get('err_msg')}")
+
+            if time.monotonic() >= deadline:
+                raise MinerUServiceError(f"MinerU 文档解析超时。task_id：{task_id}")
 
             time.sleep(self.poll_interval_seconds)
 

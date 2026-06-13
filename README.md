@@ -111,9 +111,24 @@ curl -X POST http://localhost:5000/api/picture-books \
 
 ## MinerU 接入说明
 
-本项目使用 MinerU v4 正式 API：
+本项目使用 MinerU v4 正式 API，并区分两种场景：
+
+### 用户上传本地文件
+
+网页和 `/api/picture-books` 文件上传会走签名上传流程：
 
 1. 调用 `/file-urls/batch` 获取签名上传地址
 2. 使用 `PUT` 上传用户文件
 3. 轮询 `/extract-results/batch/{batch_id}`
 4. 下载解析结果 zip，并读取其中的 `full.md`
+
+### 已有远程文件 URL
+
+如果已经有一个可公网访问的 PDF / Word / TXT 文件 URL，可直接使用
+`MinerUOcrService.parse_url()`：
+
+1. 调用 `/extract/task` 创建解析任务
+2. 轮询 `/extract/task/{task_id}`
+3. 下载解析结果 zip，并读取其中的 `full.md`
+
+注意：MinerU 文档说明 `/extract/task` 不支持直接上传本地文件，所以用户上传文件时必须使用上面的签名上传流程。
