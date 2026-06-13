@@ -1,3 +1,5 @@
-gradio
+flask
 pillow
 python-dotenv
+python-docx
+reportlab
