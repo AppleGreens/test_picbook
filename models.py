@@ -24,10 +24,21 @@ class PictureBookPage:
 
 
 @dataclass(frozen=True)
+class CharacterProfile:
+    name: str
+    description: str
+    style: str
+    reference_prompt: str
+    reference_image_path: Path | None = None
+    reference_image_url: str | None = None
+
+
+@dataclass(frozen=True)
 class PictureBookResult:
     job_id: str
     title: str
     source_name: str
+    character_profile: CharacterProfile | None
     pages: list[PictureBookPage]
     pdf_path: Path
     parsed_text: str

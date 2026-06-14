@@ -5,7 +5,7 @@ from pathlib import Path
 from document_service import DocumentParseError, DocumentParser
 from image_service import ImageServiceError, NanoBananaImageService
 from mineru_service import MinerUOcrService, MinerUServiceError
-from models import DocumentContent, PictureBookPage, PictureBookResult
+from models import CharacterProfile, DocumentContent, PictureBookPage, PictureBookResult
 from outline_service import OutlineGenerationError, PictureBookOutlineService
 from pdf_export_service import PdfExportError, PictureBookPdfExporter
 
@@ -45,6 +45,7 @@ class PictureBookService:
         image_size: str = "2k",
         page_count: int = 6,
         reference_image_urls: list[str] | None = None,
+        generated_asset_base_url: str | None = None,
     ) -> PictureBookResult:
         document = DocumentContent(text=text, source_name="text")
         return self._create(
@@ -53,6 +54,7 @@ class PictureBookService:
             image_size=image_size,
             page_count=page_count,
             reference_image_urls=reference_image_urls,
+            generated_asset_base_url=generated_asset_base_url,
         )
 
     def create_from_file(
@@ -62,6 +64,7 @@ class PictureBookService:
         image_size: str = "2k",
         page_count: int = 6,
         reference_image_urls: list[str] | None = None,
+        generated_asset_base_url: str | None = None,
     ) -> PictureBookResult:
         try:
             document = self.document_parser.parse(file_path)
@@ -74,6 +77,7 @@ class PictureBookService:
             image_size=image_size,
             page_count=page_count,
             reference_image_urls=reference_image_urls,
+            generated_asset_base_url=generated_asset_base_url,
         )
 
     def _create(
@@ -83,20 +87,31 @@ class PictureBookService:
         image_size: str,
         page_count: int,
         reference_image_urls: list[str] | None,
+        generated_asset_base_url: str | None,
     ) -> PictureBookResult:
         job_id = uuid.uuid4().hex
 
         try:
-            title, pages = self.outline_service.generate_outline(
+            title, character_profile, pages = self.outline_service.generate_outline(
                 document.text,
                 page_count=page_count,
+            )
+            character_profile = self._generate_character_reference_sheet(
+                job_id=job_id,
+                character_profile=character_profile,
+                reference_image_urls=reference_image_urls,
+                generated_asset_base_url=generated_asset_base_url,
+            )
+            character_reference_urls = self._character_reference_urls(
+                character_profile=character_profile,
+                reference_image_urls=reference_image_urls,
             )
             pages_with_images = self._generate_page_images(
                 job_id=job_id,
                 pages=pages,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
-                reference_image_urls=reference_image_urls,
+                reference_image_urls=character_reference_urls,
             )
             pdf_path = self.pdf_exporter.export(
                 title=title,
@@ -110,10 +125,59 @@ class PictureBookService:
             job_id=job_id,
             title=title,
             source_name=document.source_name,
+            character_profile=character_profile,
             pages=pages_with_images,
             pdf_path=pdf_path,
             parsed_text=document.text,
         )
+
+    def _generate_character_reference_sheet(
+        self,
+        job_id: str,
+        character_profile: CharacterProfile,
+        reference_image_urls: list[str] | None,
+        generated_asset_base_url: str | None,
+    ) -> CharacterProfile:
+        references = [url for url in reference_image_urls or [] if url]
+        prompt = character_profile.reference_prompt
+        if references:
+            prompt = (
+                f"{prompt}\n\n"
+                "Use the uploaded user photo(s) as identity references for this "
+                "character sheet. Preserve the same face shape, eye color, hair "
+                "style, and clothing details from the reference photo where visible."
+            )
+
+        image_result = self.image_service.generate_image(
+            prompt=prompt,
+            aspect_ratio="16:9",
+            image_size="4k",
+            reference_image_urls=references,
+        )
+        image_path = self.images_dir / f"{job_id}_character_reference.png"
+        image_path.write_bytes(image_result.image_bytes)
+        reference_image_url = None
+        if generated_asset_base_url:
+            reference_image_url = f"{generated_asset_base_url.rstrip('/')}/{image_path.name}"
+
+        return CharacterProfile(
+            name=character_profile.name,
+            description=character_profile.description,
+            style=character_profile.style,
+            reference_prompt=character_profile.reference_prompt,
+            reference_image_path=image_path,
+            reference_image_url=reference_image_url,
+        )
+
+    def _character_reference_urls(
+        self,
+        character_profile: CharacterProfile,
+        reference_image_urls: list[str] | None,
+    ) -> list[str]:
+        references = [url for url in reference_image_urls or [] if url]
+        if character_profile.reference_image_url:
+            references.insert(0, character_profile.reference_image_url)
+        return references
 
     def _generate_page_images(
         self,
@@ -130,9 +194,9 @@ class PictureBookService:
             if references:
                 prompt = (
                     f"{prompt}\n\nUse the uploaded reference photo(s) as character "
-                    "identity references. Integrate the real person from the photo "
-                    "into the cartoon picture-book scene while keeping the scene "
-                    "warm, child-friendly, and story-driven."
+                    "identity references. Character Consistency (CRITICAL): Keep "
+                    "the same face shape, eye color, hair style, and clothing. "
+                    "Only change pose, expression, and interaction with the scene."
                 )
             image_result = self.image_service.generate_image(
                 prompt=prompt,

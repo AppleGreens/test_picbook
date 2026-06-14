@@ -63,7 +63,7 @@ INDEX_HTML = """
   <body>
     <main>
       <h1>AI 儿童绘本生成器</h1>
-      <p class="hint">可以输入文字，也可以上传 PDF、Word 或 TXT。PDF/Word 会通过 MinerU 解析，PDF 中的图片会开启 OCR。也可以上传孩子或角色照片，让 AI 融入绘本插图。</p>
+      <p class="hint">可以输入文字，也可以上传 PDF、Word 或 TXT。PDF/Word 会通过 MinerU 解析，PDF 中的图片会开启 OCR。也可以上传孩子或角色照片，让 AI 先生成角色设定图，再融入每页绘本插图。</p>
       <div class="content-grid">
         <form id="picture-book-form" action="/picture-books" method="post" enctype="multipart/form-data">
           <label>文字描述</label>
@@ -80,10 +80,9 @@ INDEX_HTML = """
             <div>
               <label>页数</label>
               <select name="page_count">
-                <option value="4">4 页</option>
-                <option value="6" selected>6 页</option>
-                <option value="8">8 页</option>
-                <option value="10">10 页</option>
+                <option value="10" selected>10 页</option>
+                <option value="12">12 页</option>
+                <option value="15">15 页</option>
               </select>
             </div>
             <div>
@@ -122,7 +121,8 @@ INDEX_HTML = """
           <ul id="stage-list" class="stage-list">
             <li><span class="stage-dot"></span><span>准备素材和参考照片</span></li>
             <li><span class="stage-dot"></span><span>解析文档 / OCR</span></li>
-            <li><span class="stage-dot"></span><span>梳理提示词与生成大纲</span></li>
+            <li><span class="stage-dot"></span><span>生成 10-15 页绘本大纲</span></li>
+            <li><span class="stage-dot"></span><span>生成角色设定图</span></li>
             <li><span class="stage-dot"></span><span>生成每页绘本插图</span></li>
             <li><span class="stage-dot"></span><span>导出儿童绘本 PDF</span></li>
           </ul>
@@ -141,8 +141,9 @@ INDEX_HTML = """
       const stages = [
         { label: "准备素材和参考照片", percent: 8 },
         { label: "解析文档 / OCR", percent: 24 },
-        { label: "梳理提示词与生成大纲", percent: 42 },
-        { label: "生成每页绘本插图", percent: 74 },
+        { label: "生成 10-15 页绘本大纲", percent: 35 },
+        { label: "生成角色设定图", percent: 50 },
+        { label: "生成每页绘本插图", percent: 78 },
         { label: "导出儿童绘本 PDF", percent: 92 },
       ];
       let timer = null;
@@ -195,6 +196,7 @@ INDEX_HTML = """
         progressResult.innerHTML = `
           <div class="result-box">
             <strong>${escapeHtml(data.title || "绘本已生成")}</strong><br />
+            ${data.character_reference_url ? `<a href="${escapeHtml(data.character_reference_url)}" target="_blank" rel="noopener">查看角色设定图</a><br />` : ""}
             <a href="${escapeHtml(data.download_url)}" target="_blank" rel="noopener">下载绘本 PDF</a>
             <ol>${outline}</ol>
           </div>
@@ -256,6 +258,9 @@ RESULT_HTML = """
     <main>
       <h1>{{ result.title }}</h1>
       <p>来源：{{ result.source_name }}</p>
+      {% if result.character_profile and result.character_profile.reference_image_url %}
+        <p><a class="button" href="{{ result.character_profile.reference_image_url }}">查看角色设定图</a></p>
+      {% endif %}
       <p><a class="button" href="{{ download_url }}">下载绘本 PDF</a></p>
       <h2>绘本大纲</h2>
       <ol>
@@ -322,6 +327,15 @@ def download_picture_book(job_id: str):
     return send_file(pdf_path, as_attachment=True, download_name=f"{job_id}.pdf")
 
 
+@app.get("/generated-assets/<filename>")
+def generated_asset(filename: str):
+    safe_name = secure_filename(filename)
+    asset_path = OUTPUT_DIR / "images" / safe_name
+    if not asset_path.exists():
+        return jsonify({"error": "生成资产不存在或已被清理。"}), 404
+    return send_file(asset_path)
+
+
 @app.get("/reference-photos/<filename>")
 def uploaded_reference_photo(filename: str):
     safe_name = secure_filename(filename)
@@ -348,6 +362,7 @@ def _create_picture_book_from_request():
             image_size=image_size,
             page_count=page_count,
             reference_image_urls=reference_image_urls,
+            generated_asset_base_url=f"{request.host_url.rstrip('/')}/generated-assets",
         )
 
     if text:
@@ -358,6 +373,7 @@ def _create_picture_book_from_request():
             image_size=image_size,
             page_count=page_count,
             reference_image_urls=reference_image_urls,
+            generated_asset_base_url=f"{request.host_url.rstrip('/')}/generated-assets",
         )
 
     raise PictureBookError("请填写文字描述或上传一个文档。")
@@ -404,9 +420,9 @@ def _save_reference_photos(uploaded_files) -> list[str]:
 
 def _parse_page_count(raw_page_count: str | None) -> int:
     try:
-        return max(1, min(int(raw_page_count or "6"), 12))
+        return max(1, min(int(raw_page_count or "10"), 15))
     except ValueError:
-        return 6
+        return 10
 
 
 def _serialize_result(result):
@@ -414,6 +430,12 @@ def _serialize_result(result):
         "job_id": result.job_id,
         "title": result.title,
         "source_name": result.source_name,
+        "character_name": result.character_profile.name if result.character_profile else None,
+        "character_reference_url": (
+            result.character_profile.reference_image_url
+            if result.character_profile
+            else None
+        ),
         "download_url": url_for(
             "download_picture_book",
             job_id=result.job_id,
