@@ -1,1 +1,187 @@
-# test_picbook
+# AI 儿童绘本生成器
+
+一个最小可用的 AI 儿童绘本生成器后端，使用 Python + Flask。用户可以输入文字，也可以上传 PDF、Word 或 TXT 文档；系统会解析文档内容，生成儿童绘本大纲，调用 Nano Banana Pro 生成每页插图，并导出一本 PDF 绘本。
+
+## 项目结构
+
+```text
+.
+├── app.py                  # Flask 后端入口
+├── document_service.py     # PDF / Word / TXT 文档解析
+├── image_service.py        # Nano Banana Pro 图片生成服务
+├── mineru_service.py       # MinerU OCR / 文档解析服务
+├── models.py               # 数据模型
+├── outline_service.py      # 绘本大纲生成
+├── pdf_export_service.py   # 绘本 PDF 导出
+├── picture_book_service.py # 绘本生成总流程
+├── requirements.txt        # Python 依赖
+├── .env.example            # 环境变量示例
+├── .gitignore              # Git 忽略规则
+└── README.md               # 使用说明
+```
+
+## 功能
+
+- 文档解析：支持 PDF、Word（`.doc` / `.docx`）和 TXT
+- OCR：PDF / Word 通过 MinerU 解析，PDF 图片内容会开启 OCR
+- 提示词规范化：后台会把用户初始提示词整理成儿童绘本设计 Brief
+- 大纲生成：把原文拆成儿童绘本页，并生成每页旁白、结构化页面计划和图片提示词
+- 角色设定：先生成 Character Reference Sheet，再用于约束后续页面插图
+- 图片生成：调用 Nano Banana Pro 生成绘本风格插图，可上传参考照片融入角色
+- PDF 导出：将封面、插图和旁白合成为一本 PDF 绘本
+
+## 准备环境
+
+建议使用 Python 3.10 或更高版本。
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+复制环境变量示例文件，并填写 API Key：
+
+```bash
+cp .env.example .env
+```
+
+至少需要配置：
+
+```bash
+NANO_BANANA_API_KEY=your_api_key_here
+MINERU_API_KEY=your_mineru_api_key_here
+```
+
+默认接口配置如下，可按需调整：
+
+```bash
+NANO_BANANA_BASE_URL=https://api.grsai.com
+NANO_BANANA_MODEL=nano-banana-pro
+NANO_BANANA_ASPECT_RATIO=16:9
+NANO_BANANA_IMAGE_SIZE=2k
+NANO_BANANA_REFERENCE_IMAGE_FIELD=imageUrls
+
+MINERU_BASE_URL=https://mineru.net/api/v4
+MINERU_MODEL_VERSION=vlm
+MINERU_LANGUAGE=ch
+MINERU_UPLOAD_TIMEOUT_SECONDS=180
+MINERU_UPLOAD_RETRIES=3
+```
+
+## 启动应用
+
+```bash
+python3 app.py
+```
+
+启动后打开：
+
+```text
+http://localhost:5000
+```
+
+## 使用方式
+
+### 网页方式
+
+打开首页后，可以：
+
+1. 输入文字描述；或
+2. 上传 PDF、Word、TXT 文档
+
+也可以上传孩子或角色照片作为参考图。系统会先生成一张角色设定图，再把角色设定图和用户照片一起作为后续每页插图的角色一致性参考。
+
+然后选择页数、图片比例、图片大小，点击「生成儿童绘本 PDF」。
+
+### API 方式
+
+```bash
+curl -X POST http://localhost:5000/api/picture-books \
+  -F "text=一只戴红围巾的小狐狸，在月光下的森林里给星星写信" \
+  -F "page_count=6" \
+  -F "aspect_ratio=16:9" \
+  -F "image_size=2k"
+```
+
+上传文档：
+
+```bash
+curl -X POST http://localhost:5000/api/picture-books \
+  -F "file=@story.pdf" \
+  -F "reference_photos=@child.jpg" \
+  -F "page_count=6" \
+  -F "aspect_ratio=16:9" \
+  -F "image_size=2k"
+```
+
+接口返回 `download_url` 后，可访问该地址下载 PDF。
+
+### 参考照片说明
+
+参考照片支持 JPG、PNG、WEBP。后端会把照片保存到 `storage/reference_photos`，并通过 `/reference-photos/<filename>` 生成可访问 URL，再传给 Nano Banana Pro。
+
+图片生成顺序：
+
+1. 生成 10-15 页结构化绘本大纲
+2. 生成一张横向 16:9 的 Character Reference Sheet
+3. 使用角色设定图和用户参考照片生成每页插图
+
+默认参考图字段为 `imageUrls`。如果 API 服务商要求其他字段名，可以通过 `.env` 调整：
+
+```bash
+NANO_BANANA_REFERENCE_IMAGE_FIELD=imageUrls
+```
+
+## 后台提示词规范化
+
+无论用户输入水平如何，系统都会在后台按以下默认角色和规则整理绘本创作 Brief。用户明确提到的角色、场景、情绪、受众、风格和限制优先；没有提到的部分使用默认要求。
+
+默认角色：
+
+```text
+你是一位世界级的儿童绘本设计师和故事讲述者。
+你制作的绘本能根据源素材和目标受众进行调整。
+凡事皆有故事，而你要找到最佳的讲述方式。
+```
+
+每一页都会包含：
+
+```text
+// NARRATIVE GOAL (叙事目标)
+// KEY CONTENT (关键内容)
+// VISUAL (视觉画面)
+// LAYOUT (布局结构)
+```
+
+关键规则：
+
+- 避免“标题：副标题”格式
+- 禁止“不仅仅是 [X]，而是 [Y]”这类表达
+- 封底不用“谢谢观看”，改用更有设计感的结束语
+
+图片提示词会默认使用“迪士尼皮克斯 3D 动画风格”、明亮温暖色调、橙色/绿色/蓝色主色、16:9 和 4K，并要求角色与参考图保持一致：脸型、眼睛颜色、发型、服装一致，只改变姿势、表情和场景互动。
+
+## MinerU 接入说明
+
+本项目使用 MinerU v4 正式 API，并区分两种场景：
+
+### 用户上传本地文件
+
+网页和 `/api/picture-books` 文件上传会走签名上传流程：
+
+1. 调用 `/file-urls/batch` 获取签名上传地址
+2. 使用 `PUT` 上传用户文件
+3. 轮询 `/extract-results/batch/{batch_id}`
+4. 下载解析结果 zip，并读取其中的 `full.md`
+
+### 已有远程文件 URL
+
+如果已经有一个可公网访问的 PDF / Word / TXT 文件 URL，可直接使用
+`MinerUOcrService.parse_url()`：
+
+1. 调用 `/extract/task` 创建解析任务
+2. 轮询 `/extract/task/{task_id}`
+3. 下载解析结果 zip，并读取其中的 `full.md`
+
+注意：MinerU 文档说明 `/extract/task` 不支持直接上传本地文件，所以用户上传文件时必须使用上面的签名上传流程。
